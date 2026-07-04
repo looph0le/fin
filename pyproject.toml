@@ -1,0 +1,35 @@
+[project]
+name = "fin"
+version = "0.1.0"
+description = "Personal finance CLI"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.12",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "rich>=13.0",
+    "pydantic>=2.0",
+    "python-dotenv>=1.0",
+    "mcp>=1.0",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg2-binary>=2.9"]
+dev = ["pytest>=8.0", "ruff>=0.5"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+fin = "fin.main:main"
+fin-mcp = "fin.mcp_server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

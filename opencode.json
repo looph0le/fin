@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "fin": {
+      "type": "local",
+      "command": [".venv/bin/fin-mcp"],
+      "enabled": true
+    }
+  }
+}
