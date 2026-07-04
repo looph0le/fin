@@ -23,11 +23,11 @@ fin loan whatif --prepay 50000
 ## Quick Start
 
 ```bash
-pip install fin
+curl -fsSL https://raw.githubusercontent.com/looph0le/fin/main/install.sh | bash
 fin add -a 85000 -d "Salary June" --income -c Salary
 ```
 
-The database and default categories are auto-created on first run.
+The database (`~/.fin/finances.db`) and default categories are auto-created on first run.
 
 ## CLI Usage
 
