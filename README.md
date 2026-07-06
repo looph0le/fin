@@ -1,12 +1,6 @@
-# Fin — Personal Finance Manager
+# Fin — Personal Finance MCP Server
 
-A CLI and MCP server for personal finance management, designed from the ground up for use by AI agents and LLMs.
-
-```
-fin add -a -450 -d "Swiggy lunch" -c Food
-fin report monthly
-fin loan whatif --prepay 50000
-```
+An **MCP server** for personal finance management, designed for AI agents and LLMs. Exposes all operations as MCP tools and resources — no CLI, no HTTP, just stdio.
 
 ## Features
 
@@ -22,84 +16,68 @@ fin loan whatif --prepay 50000
 
 ## Quick Start
 
+### Option 1: Install Script (Recommended)
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/looph0le/fin/main/install.sh | bash
-fin add -a 85000 -d "Salary June" --income -c Salary
 ```
 
-The database (`~/.fin/finances.db`) and default categories are auto-created on first run.
+### Option 2: Standalone Binary (No Python required)
 
-## CLI Usage
-
-### Transactions
-```bash
-fin add -a -450 -d "Lunch" -c Food                          # expense
-fin add -a 85000 -d "Salary" --income -c Salary              # income
-fin log '[{"amount":-120,"description":"Uber","category":"Transport"}]'  # bulk
-```
-
-### Accounts
-```bash
-fin accounts add "HDFC Savings" -t savings -i "HDFC Bank"
-fin accounts list
-fin accounts balance "HDFC Savings" 50000
-```
-
-### Budgets
-```bash
-fin budget set Food 6000
-fin budget show -m 2026-07
-fin budget suggest
-```
-
-### Loans
-```bash
-fin loan add -n "Personal Loan" -p 350000 -r 16.34 -t 60 -e 8575 -D 10
-fin loan pay 1
-fin loan whatif 1 --prepay 50000
-fin loan whatif 1 --close-by 2028-06
-fin loan forecast 1
-```
-
-### Reports
-```bash
-fin report monthly -m 2026-07
-fin report categories -m 2026-07
-fin report committed -m 2026-07
-fin report networth
-fin report cashflow -m 2026-07
-```
-
-### Other
-```bash
-fin allocate 85000                                  # salary allocation
-fin reconcile                                       # clear pending transactions
-fin query "SELECT description, amount FROM transactions WHERE date >= '2026-07-01'"
-```
-
-All amounts in rupees — negative for expenses, positive for income.
-
-## MCP Server (AI Agent Integration)
-
-Fin exposes all functionality through a **Model Context Protocol (MCP)** server, enabling any MCP-compatible AI agent (Claude, opencode, etc.) to manage your finances.
+Download the binary for your platform from [releases](#), or build from source:
 
 ```bash
-fin-mcp
+make install
 ```
 
-Configure your AI agent with:
+This creates `~/.fin/bin/fin` — a single executable with everything bundled.
+
+### Option 3: Python venv (Development)
+
+```bash
+git clone <repo> && cd finances
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+### MCP Config
+
+Configure your AI agent (Claude, opencode, etc.):
 
 ```json
 {
   "mcpServers": {
     "fin": {
-      "command": "fin-mcp"
+      "command": "/Users/yourname/.fin/bin/fin"
     }
   }
 }
 ```
 
-### 27 Tools Available
+The database (`~/.fin/finances.db`) and default categories are auto-created on first run. Use `run_onboarding` to set up accounts, income, recurring expenses, loans, and budgets.
+
+## Onboarding
+
+Fin includes a guided onboarding flow to get you from zero to fully configured in 7 steps:
+
+| Step | What it sets up |
+|------|----------------|
+| `accounts` | Savings, credit cards, cash, wallets, investments |
+| `income` | Salary amount/day and other recurring income |
+| `recurring` | Rent, subscriptions, insurance — recurring expenses |
+| `loans` | Full amortization schedules for any active loans |
+| `budgets` | Monthly spending limits per category |
+| `allocation` | Salary distribution rules |
+| `catchup` | Backfill recent transactions |
+
+```python
+# Check status
+run_onboarding()
+# Process a step
+run_onboarding(step="income", data={"salary_amount": "85000", "salary_day": 1})
+```
+
+## 28 Tools Available
 
 | Tool | Description |
 |---|---|
@@ -130,8 +108,9 @@ Configure your AI agent with:
 | `reconcile` | Clear pending transactions |
 | `query` | Run read-only SQL |
 | `categories` | List all categories |
+| `run_onboarding` | Guided setup — accounts, income, budgets, etc. |
 
-### 9 Resources
+## 10 Resources
 
 | URI | Description |
 |---|---|
@@ -144,6 +123,7 @@ Configure your AI agent with:
 | `fin://reports/monthly/{year}/{month}` | Monthly report |
 | `fin://reports/cashflow/{year}/{month}` | Cashflow analysis |
 | `fin://reports/categories/{year}/{month}` | Category breakdown |
+| `fin://onboarding` | Setup progress — what's done and what's next |
 
 ## Configuration
 
@@ -168,17 +148,23 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/finances  # PostgreSQL
 ## Development
 
 ```bash
-git clone <repo>
-cd finances
+git clone <repo> && cd finances
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ruff check src/
 pytest
 ```
 
+### Building the Binary
+
+```bash
+make build        # Build standalone binary in dist/fin
+make install      # Build + copy to ~/.fin/bin/fin
+```
+
 ## Design Philosophy
 
-Fin is built for **AI-first personal finance management**. Every operation is available both as a CLI command and an MCP tool. The structured JSON output and consistent data model make it easy for language models to:
+Fin is built for **AI-first personal finance management**. Every operation is available as an MCP tool. The structured JSON output and consistent data model make it easy for language models to:
 
 - Query and analyze spending patterns
 - Set and track budgets

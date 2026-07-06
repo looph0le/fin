@@ -3,7 +3,7 @@
   "mcp": {
     "fin": {
       "type": "local",
-      "command": [".venv/bin/fin-mcp"],
+      "command": [".venv/bin/fin"],
       "enabled": true
     }
   }

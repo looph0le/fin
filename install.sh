@@ -126,7 +126,7 @@ else
     mkdir -p "$BIN_DIR"
     pip_install "$VENV_DIR/bin/python" "$pip_url"
     # Symlink scripts into ~/.fin/bin
-    for script in fin fin-mcp; do
+    for script in fin; do
         if [ -f "$VENV_DIR/bin/$script" ]; then
             ln -sf "$VENV_DIR/bin/$script" "$BIN_DIR/$script"
         fi
@@ -219,8 +219,7 @@ echo -e "${MUTED}  █   █  ▀▀ ▀  ▀ ▀▀▀ ▀${NC}"
 echo -e ""
 echo -e "${MUTED}Try it out:${NC}"
 echo -e ""
-echo -e "  fin --help         ${MUTED}# See all commands${NC}"
-echo -e "  fin-mcp            ${MUTED}# Start MCP server for AI agents${NC}"
+echo -e "  fin                ${MUTED}# Start MCP server for AI agents${NC}"
 echo -e ""
 echo -e "${MUTED}Docs: ${NC}https://github.com/looph0le/fin"
 echo -e ""

@@ -1,17 +1,36 @@
-# Fin — Personal Finance CLI
+# Fin — Personal Finance MCP Server
+
+## Architecture
+- **`mcp_server.py`** is the sole interface — 28 MCP tools + 10 resources
+- Shared core: `helpers.py`, `db.py`, `models.py`, `seed.py`, `services/amortization.py`, `services/onboarding.py`
+- All amounts in rupees (negative = expense, positive = income)
+- Database auto-created + categories seeded on first run
 
 ## Commands
-- Before running `fin` commands, always activate the venv: `source .venv/bin/activate`
-- The tool auto-creates the database and seeds categories on first use
-- All amounts in rupees (negative = expense, positive = income)
-- For bulk entry, pass a JSON array to `fin log`
+- Activate venv: `source .venv/bin/activate`
+- Run MCP server: `fin` (stdio transport, venv or standalone binary)
+- Lint: `ruff check src/`
+- Tests: `pytest`
+- Build binary: `make build` or `make install` (copies to ~/.fin/bin/fin-bin)
 
-## MCP Server
-- Run `fin-mcp` to start the MCP server (stdio transport)
-- Exposes tools for all operations: transactions, accounts, budgets, recurring, loans, reports, net worth, cashflow, salary allocation, SQL query
-- Exposes resources: `fin://accounts`, `fin://categories`, `fin://transactions/{year}/{month}`, `fin://budgets/{year}/{month}`, `fin://loans`, `fin://reports/*`
-- Configure AI agents to use the MCP server for personal finance management
-- All tools accept and return structured JSON
+## Config
+- DB: SQLite at `~/.fin/finances.db` by default
+- PostgreSQL via `DATABASE_URL` env var
+- .env file in project root is auto-loaded by `python-dotenv`
 
-## Default account
-If no account is specified, transactions go to "Cash" (auto-created).
+## Conventions
+- `ruff` line-length: 100
+- SQLAlchemy ORM with manual `session.query()` (no async)
+- Dates: Python `datetime.date`, stored as SQLite `DATE`
+- Currency: `Decimal("12.34")`, stored as `Numeric(12, 2)`
+- Auto-categorization via keyword matching in `auto_categorize()`
+
+## MCP Server Details
+- Uses `mcp` (FastMCP) with `transport="stdio"` only
+- Tools return plain dicts/lists (FastMCP serializes to JSON)
+- Resources at `fin://` URIs for AI agent context
+- Default account is "Cash" (auto-created)
+
+## ⚠️ No CLI
+The Typer CLI has been removed. This project is MCP-only.
+Do NOT add CLI dependencies (typer, rich, click) back.

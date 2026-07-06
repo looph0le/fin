@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List
 
@@ -94,13 +94,6 @@ def whatif_prepay(
 
     original_interest = sum(p["interest_paid"] for p in original_schedule)
     new_interest = sum(p["interest_paid"] for p in new_schedule)
-
-    remaining_after_prepay = new_principal
-    months_reduced = 0
-    for p in original_schedule:
-        if p["remaining_after"] <= new_principal:
-            months_reduced = remaining_tenure - len(new_schedule)
-            break
 
     return {
         "new_principal": new_principal,

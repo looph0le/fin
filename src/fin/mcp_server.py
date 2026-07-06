@@ -1,19 +1,27 @@
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Optional
 
 from mcp.server.fastmcp import FastMCP
-from sqlalchemy.orm import Session
 
 from fin.db import engine, get_session
+from fin.helpers import (
+    amt_str,
+    auto_categorize,
+    find_category,
+    get_emi_category,
+    get_or_create_cash_account,
+    init_db,
+    parse_amount,
+    _tx_dict,
+)
 from fin.models import (
-    Base,
     Account,
     AccountType,
+    AllocationRule,
     Budget,
     Category,
-    CategoryType,
     Frequency,
     Loan,
     LoanPayment,
@@ -21,96 +29,19 @@ from fin.models import (
     LoanType,
     PaymentStatus,
     RecurringItem,
+    SalaryAllocation,
     Transaction,
     TransactionStatus,
     TransactionType,
 )
-from fin.seed import seed_categories
 from fin.services.amortization import generate_schedule, whatif_prepay, whatif_close_by
+from fin.services.onboarding import (
+    STEP_HANDLERS,
+    STEP_KEYS,
+    onboarding_status,
+)
 
 mcp = FastMCP("Fin - Personal Finance Manager")
-
-
-def init_db():
-    Base.metadata.create_all(engine)
-    with get_session() as session:
-        seed_categories(session)
-
-
-def parse_amount(value: str) -> Decimal:
-    return Decimal(value.replace("₹", "").replace(",", "").replace(" ", "").strip())
-
-
-def get_or_create_cash_account(session: Session) -> Account:
-    acct = session.query(Account).filter(Account.name == "Cash").first()
-    if not acct:
-        acct = Account(name="Cash", type=AccountType.CASH)
-        session.add(acct)
-        session.commit()
-    return acct
-
-
-def find_category(session: Session, name: str) -> Optional[Category]:
-    return session.query(Category).filter(Category.name.ilike(name)).first()
-
-
-def auto_categorize(session: Session, description: str) -> Category:
-    desc_lower = description.lower()
-    keywords = {
-        "Food": ["swiggy", "zomato", "chai", "tea", "coffee", "lunch", "dinner", "breakfast", "momos", "food", "restaurant", "pizza", "burger", "grocery", "milk", "bread", "eat", "snack"],
-        "Transport": ["uber", "ola", "cab", "auto", "rickshaw", "bus", "metro", "train", "petrol", "fuel", "diesel", "parking", "toll"],
-        "Entertainment": ["netflix", "prime", "hotstar", "spotify", "movie", "cinema", "theatre", "game", "pubg", "youtube"],
-        "Shopping": ["amazon", "flipkart", "myntra", "meesho", "earphone", "clothes", "shoe", "gadget"],
-        "Utilities": ["electricity", "water", "bill", "recharge", "phone", "mobile", "internet", "broadband", "wifi"],
-        "EMI": ["emi", "loan", "credit card"],
-        "Salary": ["salary", "sal"],
-    }
-    for cat_name, kw_list in keywords.items():
-        if any(kw in desc_lower for kw in kw_list):
-            cat = find_category(session, cat_name)
-            if cat:
-                return cat
-    misc = find_category(session, "Miscellaneous")
-    if misc:
-        return misc
-    cat = Category(name="Miscellaneous", type=CategoryType.EXPENSE)
-    session.add(cat)
-    session.commit()
-    return cat
-
-
-def amt_str(amount: Decimal) -> str:
-    sign = ""
-    val = amount
-    if val < 0:
-        sign = "-"
-        val = -val
-    return f"{sign}₹{val:,.2f}"
-
-
-def get_emi_category(session: Session) -> Category:
-    cat = find_category(session, "EMI")
-    if not cat:
-        cat = Category(name="EMI", type=CategoryType.EXPENSE)
-        session.add(cat)
-        session.commit()
-    return cat
-
-
-def _tx_dict(tx: Transaction) -> dict:
-    return {
-        "id": tx.id,
-        "account": tx.account.name if tx.account else None,
-        "date": tx.date.isoformat(),
-        "description": tx.description,
-        "amount": str(tx.amount),
-        "amount_formatted": amt_str(tx.amount),
-        "category": tx.category.name if tx.category else None,
-        "type": tx.type.value,
-        "status": tx.status.value if tx.status else None,
-        "is_recurring": tx.is_recurring,
-        "notes": tx.notes,
-    }
 
 
 # ─── Tools ────────────────────────────────────────────────────────────────────
@@ -478,7 +409,7 @@ def list_recurring() -> list[dict]:
     """List all active recurring items."""
     init_db()
     with get_session() as session:
-        items = session.query(RecurringItem).filter(RecurringItem.is_active == True).all()
+        items = session.query(RecurringItem).filter(RecurringItem.is_active).all()
         return [
             {
                 "id": item.id,
@@ -497,17 +428,17 @@ def list_recurring() -> list[dict]:
 def generate_recurring(month: Optional[str] = None) -> dict:
     """Generate transactions from recurring items for a given month. Month format: YYYY-MM (default: next)"""
     init_db()
-    target_month = date.today().replace(day=1)
     if month:
         target_month = date.fromisoformat(month + "-01")
     else:
+        target_month = date.today().replace(day=1)
         if target_month.month < 12:
             target_month = date(target_month.year, target_month.month + 1, 1)
         else:
             target_month = date(target_month.year + 1, 1, 1)
 
     with get_session() as session:
-        items = session.query(RecurringItem).filter(RecurringItem.is_active == True).all()
+        items = session.query(RecurringItem).filter(RecurringItem.is_active).all()
         count = 0
         for item in items:
             try:
@@ -661,9 +592,6 @@ def pay_loan(
 ) -> dict:
     """Pay the next EMI for a loan. Month format: YYYY-MM"""
     init_db()
-    target_month = date.today().replace(day=1)
-    if month:
-        target_month = date.fromisoformat(month + "-01")
 
     with get_session() as session:
         loan = session.query(Loan).filter(Loan.id == loan_id).first()
@@ -923,10 +851,10 @@ def networth() -> dict:
     init_db()
     with get_session() as session:
         asset_accounts = session.query(Account).filter(
-            Account.is_active == True,
+            Account.is_active,
             Account.type.in_([AccountType.SAVINGS, AccountType.CASH, AccountType.INVESTMENT, AccountType.WALLET]),
         ).all()
-        liabilities = session.query(Loan).filter(Loan.status == LoanStatus.ACTIVE).all()
+        loan_liabilities = session.query(Loan).filter(Loan.status == LoanStatus.ACTIVE).all()
 
         assets = [
             {
@@ -942,13 +870,13 @@ def networth() -> dict:
 
         liability_list = [
             {
-                "name": l.name,
-                "remaining": str(l.remaining_principal),
-                "remaining_formatted": amt_str(l.remaining_principal),
+                "name": li.name,
+                "remaining": str(li.remaining_principal),
+                "remaining_formatted": amt_str(li.remaining_principal),
             }
-            for l in liabilities
+            for li in loan_liabilities
         ]
-        total_liabilities = sum(l.remaining_principal for l in liabilities)
+        total_liabilities = sum(li.remaining_principal for li in loan_liabilities)
 
         net = total_assets - total_liabilities
 
@@ -1068,8 +996,8 @@ def committed_report(year: Optional[int] = None, month: Optional[int] = None) ->
             "remaining": str(income_sum - committed - discretionary),
             "remaining_formatted": amt_str(income_sum - committed - discretionary),
             "active_loans": [
-                {"name": l.name, "emi": str(l.emi_amount), "remaining": str(l.remaining_principal)}
-                for l in loans
+                {"name": loan.name, "emi": str(loan.emi_amount), "remaining": str(loan.remaining_principal)}
+                for loan in loans
             ],
         }
 
@@ -1078,8 +1006,9 @@ def committed_report(year: Optional[int] = None, month: Optional[int] = None) ->
 def allocate_salary(
     salary: str,
     salary_date: Optional[str] = None,
+    use_rules: bool = False,
 ) -> dict:
-    """Allocate salary against budgets and loans for a month. salary_date format: YYYY-MM-DD"""
+    """Allocate salary against budgets and loans for a month. salary_date format: YYYY-MM-DD. Set use_rules=True to apply saved allocation rules."""
     init_db()
     amt = parse_amount(salary)
     tx_date = date.fromisoformat(salary_date) if salary_date else date.today()
@@ -1114,14 +1043,82 @@ def allocate_salary(
         budgets = session.query(Budget).filter(Budget.month == budget_month).all()
         loans = session.query(Loan).filter(Loan.status == LoanStatus.ACTIVE).all()
 
+        actions = {"payments_made": [], "recurring_generated": 0}
+
+        if use_rules:
+            allocation = session.query(SalaryAllocation).filter(
+                SalaryAllocation.is_active,
+            ).first()
+            if allocation:
+                rules = session.query(AllocationRule).filter(
+                    AllocationRule.allocation_id == allocation.id,
+                ).order_by(AllocationRule.order).all()
+                for rule in rules:
+                    if rule.allocation_type == "remaining":
+                        continue
+                recurring_items = session.query(RecurringItem).filter(
+                    RecurringItem.is_active,
+                ).all()
+                for item in recurring_items:
+                    try:
+                        gen_date = budget_month.replace(day=min(item.day_of_month, 28))
+                    except ValueError:
+                        gen_date = budget_month.replace(day=28)
+                    existing = session.query(Transaction).filter(
+                        Transaction.description == item.description,
+                        Transaction.date == gen_date,
+                        Transaction.account_id == item.account_id,
+                    ).first()
+                    if not existing:
+                        tx_type = TransactionType.INCOME if item.amount > 0 else TransactionType.EXPENSE
+                        tx = Transaction(
+                            account_id=item.account_id,
+                            date=gen_date,
+                            description=item.description,
+                            amount=item.amount,
+                            category_id=item.category_id,
+                            type=tx_type,
+                            is_recurring=True,
+                        )
+                        session.add(tx)
+                        actions["recurring_generated"] += 1
+                for loan in loans:
+                    payment = session.query(LoanPayment).filter(
+                        LoanPayment.loan_id == loan.id,
+                        LoanPayment.status == PaymentStatus.UPCOMING,
+                    ).order_by(LoanPayment.sequence).first()
+                    if payment:
+                        emi_cat = get_emi_category(session)
+                        tx = Transaction(
+                            account_id=loan.account_id,
+                            date=payment.due_date,
+                            description=f"{loan.name} EMI #{payment.sequence}",
+                            amount=-payment.emi_amount,
+                            category_id=emi_cat.id,
+                            type=TransactionType.EXPENSE,
+                            loan_id=loan.id,
+                        )
+                        session.add(tx)
+                        session.flush()
+                        payment.status = PaymentStatus.PAID
+                        payment.paid_date = payment.due_date
+                        payment.transaction_id = tx.id
+                        loan.remaining_principal = payment.remaining_after
+                        loan.remaining_tenure -= 1
+                        actions["payments_made"].append({
+                            "loan": loan.name,
+                            "emi_sequence": payment.sequence,
+                            "amount": str(payment.emi_amount),
+                        })
+                session.commit()
+
         budget_total = Decimal("0.0")
         loan_total = Decimal("0.0")
-
-        allocation = {"loans": [], "budgets": []}
+        allocation_summary = {"loans": [], "budgets": []}
 
         for loan in loans:
             loan_total += loan.emi_amount
-            allocation["loans"].append({
+            allocation_summary["loans"].append({
                 "name": loan.name,
                 "amount": str(loan.emi_amount),
                 "amount_formatted": amt_str(loan.emi_amount),
@@ -1131,7 +1128,7 @@ def allocate_salary(
         for bg in budgets:
             budget_total += bg.limit_amount
             cat_name = bg.category.name if bg.category else "Unknown"
-            allocation["budgets"].append({
+            allocation_summary["budgets"].append({
                 "category": cat_name,
                 "limit": str(bg.limit_amount),
                 "limit_formatted": amt_str(bg.limit_amount),
@@ -1140,11 +1137,11 @@ def allocate_salary(
         total_allocated = loan_total + budget_total
         remaining = amt - total_allocated
 
-        return {
+        result = {
             "salary": str(amt),
             "salary_formatted": amt_str(amt),
             "month": budget_month.strftime("%Y-%m"),
-            "allocation": allocation,
+            "allocation": allocation_summary,
             "loan_total": str(loan_total),
             "loan_total_formatted": amt_str(loan_total),
             "budget_total": str(budget_total),
@@ -1154,6 +1151,9 @@ def allocate_salary(
             "remaining": str(remaining),
             "remaining_formatted": amt_str(remaining),
         }
+        if use_rules:
+            result["actions"] = actions
+        return result
 
 
 @mcp.tool()
@@ -1232,6 +1232,32 @@ def list_upcoming_emis(limit: int = 20) -> list[dict]:
         ]
 
 
+@mcp.tool()
+def run_onboarding(
+    step: Optional[str] = None,
+    data: Optional[dict] = None,
+) -> dict:
+    """Run or query the onboarding flow. Omit step+data to get current status. Steps: accounts, income, recurring, loans, budgets, allocation, catchup"""
+    init_db()
+    with get_session() as session:
+        if step is None:
+            return onboarding_status(session)
+
+        step = step.lower()
+        if step not in STEP_HANDLERS:
+            return {"error": f"Invalid step '{step}'. Choose from: {', '.join(STEP_KEYS)}"}
+
+        handler = STEP_HANDLERS[step]
+        result = handler(session, data or {})
+
+        if "error" in result:
+            return result
+
+        status = onboarding_status(session)
+        result["progress"] = status["overall"]
+        return result
+
+
 # ─── Resources ────────────────────────────────────────────────────────────────
 
 
@@ -1287,6 +1313,14 @@ def cashflow_resource(year: str, month: str) -> str:
 def categories_report_resource(year: str, month: str) -> str:
     """Category breakdown for a given month (YYYY/MM)."""
     return json.dumps(category_breakdown(year=int(year), month=int(month)), indent=2)
+
+
+@mcp.resource("fin://onboarding")
+def onboarding_resource() -> str:
+    """Current onboarding progress (what's set up and what's missing)."""
+    init_db()
+    with get_session() as session:
+        return json.dumps(onboarding_status(session), indent=2, default=str)
 
 
 # ─── Entry Point ──────────────────────────────────────────────────────────────

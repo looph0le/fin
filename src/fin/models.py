@@ -2,7 +2,7 @@ import datetime
 import enum
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Column, Date, Enum, ForeignKey, Integer, Numeric, SmallInteger, String, Text
+from sqlalchemy import Boolean, Column, Date, Enum, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 today = datetime.date.today
@@ -226,3 +226,38 @@ class NetWorthSnapshot(Base):
 
     def __repr__(self):
         return f"<NetWorthSnapshot {self.date}: {self.type} ₹{self.amount}>"
+
+
+class SalaryAllocation(Base):
+    __tablename__ = "salary_allocations"
+
+    id = Column(Integer, primary_key=True)
+    salary_amount = Column(Numeric(12, 2), nullable=False)
+    salary_day = Column(Integer, nullable=False)
+    salary_account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(Date, default=today)
+    updated_at = Column(Date, default=today, onupdate=today)
+
+    account = relationship("Account")
+    rules = relationship("AllocationRule", back_populates="allocation", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<SalaryAllocation ₹{self.salary_amount} day {self.salary_day}>"
+
+
+class AllocationRule(Base):
+    __tablename__ = "allocation_rules"
+
+    id = Column(Integer, primary_key=True)
+    allocation_id = Column(Integer, ForeignKey("salary_allocations.id"), nullable=False)
+    target_type = Column(String(20), nullable=False)  # "account", "budget", "loan"
+    target_name = Column(String(255), nullable=False)
+    allocation_type = Column(String(10), nullable=False)  # "percentage", "fixed", "remaining"
+    allocation_value = Column(Numeric(12, 2), nullable=True)
+    order = Column(Integer, default=0)
+
+    allocation = relationship("SalaryAllocation", back_populates="rules")
+
+    def __repr__(self):
+        return f"<AllocationRule {self.target_type}:{self.target_name} ({self.allocation_type})>"
