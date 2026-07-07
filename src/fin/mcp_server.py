@@ -1196,6 +1196,33 @@ def query(sql: str) -> dict:
 
 
 @mcp.tool()
+def execute_sql(sql: str) -> dict:
+    """Execute an INSERT, UPDATE, or DELETE SQL statement. Use this to fix data entry mistakes (e.g. remove a mistakenly inserted transaction or salary allocation)."""
+    init_db()
+    sql_upper = sql.strip().upper()
+    if not any(sql_upper.startswith(kw) for kw in ("INSERT", "UPDATE", "DELETE")):
+        return {"error": "Only INSERT, UPDATE, DELETE statements are allowed. For queries use the query tool."}
+
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        result = conn.execute(text(sql))
+        return {"affected_rows": result.rowcount}
+
+
+@mcp.tool()
+def delete_transaction(transaction_id: int) -> dict:
+    """Delete a transaction by its ID. Use this to remove mistakenly inserted transactions or salary entries."""
+    init_db()
+    with get_session() as session:
+        tx = session.query(Transaction).filter(Transaction.id == transaction_id).first()
+        if not tx:
+            return {"error": f"Transaction with id {transaction_id} not found."}
+        session.delete(tx)
+        session.commit()
+        return {"deleted": transaction_id, "description": tx.description, "amount": str(tx.amount)}
+
+
+@mcp.tool()
 def categories() -> list[dict]:
     """List all expense/income categories."""
     init_db()
